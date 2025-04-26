@@ -1,125 +1,145 @@
 #include "../includes/bsq.h"
 
-// Yardımcı: Üç sayının minimumunu bulur.
-static int	min_of_three(int a, int b, int c)
+// Yardımcı: Üç tamsayının minimumunu bulur.
+// top_val, left_val, top_left_val: Karşılaştırılacak sayılar.
+// min_val: Bulunan minimum değer.
+static int	min_of_neighbors(int top_val, int left_val, int top_left_val)
 {
-	int	min_val;
+	int	min_val; // Minimum değeri tutar
 
-	min_val = a;
-	if (b < min_val)
-		min_val = b;
-	if (c < min_val)
-		min_val = c;
+	min_val = top_val; // Başlangıçta üst komşuyu min kabul et
+	if (left_val < min_val)
+		min_val = left_val; // Sol komşu daha küçükse güncelle
+	if (top_left_val < min_val)
+		min_val = top_left_val; // Sol-üst komşu daha küçükse güncelle
 	return (min_val);
 }
 
-// Yardımcı: DP matrisini (int**) başlatır ve ilk satır/sütunu doldurur.
-// Başarı: matris pointer'ı, Hata: NULL
-static int	**init_dp_matrix(t_map_info *map, t_square *bsq)
+// Yardımcı: DP (Dinamik Programlama) matrisini (int**) başlatır.
+// map: Harita bilgilerini içeren struct.
+// bsq_result: En büyük kare bilgilerini tutacak struct (başlangıç değerleri atanır).
+// dp_table: Oluşturulan DP tablosu.
+// row, col: Matris indeksleri (satır, sütun).
+static int	**init_dp_matrix(t_map_info *map, t_square *bsq_result)
 {
-	int	**dp;
-	int	y;
-	int	x;
+	int	**dp_table;
+	int	row;
+	int	col;
 
-	dp = (int **)malloc(sizeof(int *) * map->lines);
-	if (!dp) return (NULL);
-	y = 0;
-	while (y < map->lines) // Satırları ayır
+	// Satırlar için yer ayır
+	dp_table = (int **)malloc(sizeof(int *) * map->lines);
+	if (!dp_table)
+		return (NULL);
+	row = 0;
+	while (row < map->lines)
 	{
-		dp[y] = (int *)malloc(sizeof(int) * map->cols);
-		if (!dp[y]) // Hata durumunda öncekileri free et
+		// Her satır için sütunları ayır
+		dp_table[row] = (int *)malloc(sizeof(int) * map->cols);
+		if (!dp_table[row]) // Malloc hatası durumunda öncekileri serbest bırak
 		{
-			while (--y >= 0) free(dp[y]);
-			free(dp); return (NULL);
+			while (--row >= 0)
+				free(dp_table[row]);
+			free(dp_table);
+			return (NULL);
 		}
-		x = 0;
-		while (x < map->cols) // Başlangıç değeri ata
+		col = 0;
+		while (col < map->cols) // Başlangıç değeri olarak 0 ata
 		{
-			dp[y][x] = 0;
-			x++;
+			dp_table[row][col] = 0;
+			col++;
 		}
-		y++;
+		row++;
 	}
-	// TODO: İlk satır ve ilk sütunu grid'e bakarak doldur (0 veya 1)
-	// ve bu sırada bsq->size = 1 olan kare var mı kontrol et.
-	// Şimdilik basitçe sıfır bırakıldı, aşağıdaki döngüde handle edilecek.
-	bsq->size = 0; // Başlangıçta en büyük kare boyutu 0
-	bsq->x = 0;
-	bsq->y = 0;
-	return (dp);
+	// Başlangıçta en büyük kare boyutu 0, koordinatlar 0
+	bsq_result->size = 0;
+	bsq_result->x = 0;
+	bsq_result->y = 0;
+	return (dp_table);
 }
 
 // Yardımcı: DP matrisini hesaplar ve en büyük kareyi bulur.
-static void	calculate_dp_and_find_bsq(t_map_info *map, int **dp, t_square *bsq)
+// map: Harita bilgileri.
+// dp_table: Doldurulacak DP tablosu.
+// bsq_result: Bulunan en büyük kare bilgilerini günceller.
+// row, col: Matris indeksleri.
+static void	calculate_dp_and_find_bsq(t_map_info *map, int **dp_table,
+										t_square *bsq_result)
 {
-	int	y;
-	int	x;
+	int	row;
+	int	col;
 
-	y = 0;
-	while (y < map->lines)
+	row = 0;
+	while (row < map->lines)
 	{
-		x = 0;
-		while (x < map->cols)
+		col = 0;
+		while (col < map->cols)
 		{
-			if (map->grid[y][x] == map->obstacle)
-				dp[y][x] = 0;
-			else // Boşluk karakteri
+			if (map->grid[row][col] == map->obstacle)
+				dp_table[row][col] = 0; // Engel varsa kare bitemez
+			else // Boşluk karakteri ise
 			{
-				if (x == 0 || y == 0) // Kenar durumları
-					dp[y][x] = 1;
-				else
-					dp[y][x] = 1 + min_of_three(dp[y-1][x], dp[y][x-1], dp[y-1][x-1]);
+				if (col == 0 || row == 0) // İlk satır veya sütun durumu
+					dp_table[row][col] = 1;
+				else // Diğer durumlar: sol, üst, sol-üst minimumunun 1 fazlası
+					dp_table[row][col] = 1 + min_of_neighbors(dp_table[row - 1][col], \
+								dp_table[row][col - 1], dp_table[row - 1][col - 1]);
 				// En büyük kareyi güncelle
-				if (dp[y][x] > bsq->size)
+				if (dp_table[row][col] > bsq_result->size)
 				{
-					bsq->size = dp[y][x];
-					bsq->x = x; // Sağ alt köşe
-					bsq->y = y;
+					bsq_result->size = dp_table[row][col];
+					bsq_result->x = col; // Sağ alt köşe sütun
+					bsq_result->y = row; // Sağ alt köşe satır
 				}
 			}
-			x++;
+			col++;
 		}
-		y++;
+		row++;
 	}
 }
 
 // Yardımcı: DP matrisini serbest bırakır.
-static void	free_dp_matrix(int **dp, int line_count)
+// dp_table: Serbest bırakılacak matris.
+// line_count: Matrisin satır sayısı.
+// row_idx: Döngü indeksi.
+static void	free_dp_matrix(int **dp_table, int line_count)
 {
-	int	i;
+	int	row_idx;
 
-	i = 0;
-	if (!dp)
+	row_idx = 0;
+	if (!dp_table)
 		return ;
-	while (i < line_count)
+	while (row_idx < line_count)
 	{
-		if (dp[i])
-			free(dp[i]);
-		i++;
+		if (dp_table[row_idx])
+			free(dp_table[row_idx]);
+		row_idx++;
 	}
-	free(dp);
+	free(dp_table);
 }
 
 // Ana çözüm fonksiyonu (bsq.h'de prototipi var)
+// map_info: İşlenecek harita bilgileri.
+// bsq_result: Bulunan en büyük karenin bilgileri.
+// dp_matrix: Dinamik programlama için kullanılan matris.
 t_square	solve_bsq(t_map_info *map_info)
 {
-	t_square	bsq;
+	t_square	bsq_result;
 	int			**dp_matrix;
 
-	// DP matrisini başlat (ilk satır/sütun kontrolü dahil)
-	dp_matrix = init_dp_matrix(map_info, &bsq);
+	// DP matrisini başlat
+	dp_matrix = init_dp_matrix(map_info, &bsq_result);
 	if (!dp_matrix)
 	{
-		// Hata durumu (malloc hatası), boş kare döndür
-		bsq.size = 0;
-		bsq.x = 0;
-		bsq.y = 0;
-		return (bsq);
+		// Malloc hatası durumunda boş kare döndür
+		bsq_result.size = 0;
+		bsq_result.x = 0;
+		bsq_result.y = 0;
+		return (bsq_result); // Hata dönüşü
 	}
-	// Matrisin geri kalanını doldur ve en büyük kareyi bul
-	calculate_dp_and_find_bsq(map_info, dp_matrix, &bsq);
+	// Matrisi doldur ve en büyük kareyi bul
+	calculate_dp_and_find_bsq(map_info, dp_matrix, &bsq_result);
 	// DP matrisini temizle
 	free_dp_matrix(dp_matrix, map_info->lines);
 	// Bulunan en büyük karenin bilgilerini döndür
-	return (bsq);
+	return (bsq_result);
 }
