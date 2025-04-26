@@ -1,7 +1,6 @@
 #include "../includes/bsq.h"
 
-// Bellek serbest bırakma (bsq.h'de prototipi var)
-// Bu fonksiyon daha sonra utils/ft_memory.c gibi bir yere taşınabilir.
+// Bellek serbest bırakma
 void	free_grid(char **grid, int line_count)
 {
 	int	i;
@@ -19,7 +18,6 @@ void	free_grid(char **grid, int line_count)
 }
 
 // Yardımcı: Tek bir satırı okur (\n'e kadar), buffer'a yazar.
-// Okunan byte sayısını veya hata/EOF durumunda -1/-2 döner.
 static int	read_single_line(int fd, char *buffer, int buffer_size)
 {
 	int		bytes_read;
@@ -30,7 +28,7 @@ static int	read_single_line(int fd, char *buffer, int buffer_size)
 	bytes_read = read(fd, &c, 1);
 	while (bytes_read > 0)
 	{
-		if (c == '\n') // Satır sonu
+		if (c == '\n')
 			break ;
 		if (total_bytes < buffer_size - 1)
 			buffer[total_bytes++] = c;
@@ -43,19 +41,16 @@ static int	read_single_line(int fd, char *buffer, int buffer_size)
 		return (-1);
 	if (bytes_read == 0 && total_bytes == 0) // Dosya sonu ve hiç okunmadı
 		return (-2); // EOF
-	// Satır \n ile bitmeli (grid için önemli)
-	// if (c != '\n') return (-1); // Kurala göre kontrol et
 	return (total_bytes);
 }
 
 // Yardımcı: İlk satırı (konfigürasyon) parse eder ve map_info'yu doldurur.
-// Başarı: 1, Hata: 0
 static int	parse_config_line(char *buffer, int len, t_map_info *map_info)
 {
 	int	i;
 	int	num_part_len;
 
-	// validate_chars benzeri kontrol (en az 4 char, farklı char'lar)
+	// Karakter kontrolü
 	if (len < 4 || buffer[len - 3] == buffer[len - 2]
 		|| buffer[len - 3] == buffer[len - 1]
 		|| buffer[len - 2] == buffer[len - 1])
@@ -66,7 +61,8 @@ static int	parse_config_line(char *buffer, int len, t_map_info *map_info)
 	num_part_len = len - 3;
 	i = 0;
 	map_info->lines = 0;
-	while (i < num_part_len) // Basit atoi ve sayı kontrolü
+	// Satır sayısını al
+	while (i < num_part_len)
 	{
 		if (buffer[i] < '0' || buffer[i] > '9')
 			return (0);
@@ -80,48 +76,52 @@ static int	parse_config_line(char *buffer, int len, t_map_info *map_info)
 	return (1);
 }
 
-// Yardımcı: Grid'i (haritanın geri kalanını) okur ve doğrular.
+// DÜZENLENMİŞ FONKSİYON: Grid'i (haritanın geri kalanını) okur ve doğrular.
+// Hata kontrolleri ve iç döngü sadeleştirildi.
 // Başarı: 1, Hata: 0
-static int	read_and_validate_grid(int fd, t_map_info *map_info)
+static int	read_and_validate_grid(int fd, t_map_info *map)
 {
-	char	buffer[4096]; // Tek satır için buffer (boyut ayarlanabilir)
-	int		line_index;
+	char	buffer[4096]; // Buffer boyutu ayarlanabilir
+	int		line_idx;
 	int		len;
-	int		i;
+	int		i; // Döngü sayacı dışarı alındı
 
-	map_info->grid = (char **)malloc(sizeof(char *) * map_info->lines);
-	if (!map_info->grid) return (0); // Malloc hatası
-	line_index = 0;
-	while (line_index < map_info->lines)
+	map->grid = (char **)malloc(sizeof(char *) * map->lines);
+	if (!map->grid)
+		return (0); // Grid satırları için malloc hatası
+	line_idx = 0;
+	while (line_idx < map->lines)
 	{
 		len = read_single_line(fd, buffer, 4096);
-		if (len < 0) { free_grid(map_info->grid, line_index); return (0); } // Okuma/buffer hatası
-		if (line_index == 0) // İlk grid satırı, sütun sayısını belirle
+		if (len < 0) // Okuma hatası veya buffer taştı
+			return (free_grid(map->grid, line_idx), 0);
+		if (line_idx == 0) // İlk grid satırı
 		{
-			if (len == 0) { free(map_info->grid); return (0); } // İlk satır boş olamaz
-			map_info->cols = len;
+			if (len == 0) return (free(map->grid), 0); // İlk satır boş olamaz
+			map->cols = len;
 		}
-		else if (len != map_info->cols) { free_grid(map_info->grid, line_index); return (0); } // Satır uzunlukları farklı
-		map_info->grid[line_index] = (char *)malloc(sizeof(char) * (map_info->cols + 1));
-		if (!map_info->grid[line_index]) { free_grid(map_info->grid, line_index); return (0); } // Malloc hatası
-		i = 0;
-		while (i < map_info->cols) // Satırı kopyala ve karakterleri doğrula
+		else if (len != map->cols) // Satır uzunlukları eşleşmeli
+			return (free_grid(map->grid, line_idx), 0);
+		map->grid[line_idx] = (char *)malloc(sizeof(char) * (map->cols + 1));
+		if (!map->grid[line_idx]) // Satır için malloc hatası
+			return (free_grid(map->grid, line_idx), 0);
+		i = -1;
+		while (++i < map->cols) // Satırı kopyala ve doğrula
 		{
-			if (buffer[i] != map_info->empty && buffer[i] != map_info->obstacle)
-			{ free_grid(map_info->grid, line_index + 1); return (0); } // Geçersiz karakter
-			map_info->grid[line_index][i] = buffer[i];
-			i++;
+			if (buffer[i] != map->empty && buffer[i] != map->obstacle)
+				return (free_grid(map->grid, line_idx + 1), 0); // Geçersiz karakter
+			map->grid[line_idx][i] = buffer[i];
 		}
-		map_info->grid[line_index][i] = '\0';
-		line_index++;
+		map->grid[line_idx][i] = '\0'; // Satırı sonlandır
+		line_idx++;
 	}
-	// Ekstra satır var mı kontrolü (opsiyonel ama iyi pratik)
+	// Opsiyonel: Dosyanın sonunda fazladan veri olup olmadığını kontrol et
 	// len = read_single_line(fd, buffer, 4096);
-	// if (len > 0 || len == -1) { free_grid(map_info->grid, line_index); return (0); } // Fazla veri veya okuma hatası
+	// if (len > 0 || len == -1) return (free_grid(map->grid, line_idx), 0);
 	return (1);
 }
 
-// Ana okuma fonksiyonu (bsq.h'de prototipi var)
+// Ana okuma fonksiyonu
 t_map_info	*read_map(int fd)
 {
 	t_map_info	*map_info;
@@ -131,23 +131,23 @@ t_map_info	*read_map(int fd)
 	map_info = (t_map_info *)malloc(sizeof(t_map_info));
 	if (!map_info)
 	{
-		write(2, "map error\n", 10); // Malloc error
+		write(2, "map error\n", 10); // Malloc hatası
 		return (NULL);
 	}
-	// İlk satırı oku (Konfigürasyon)
+	// İlk satırı oku
 	len = read_single_line(fd, buffer, 1024);
 	if (len <= 0 || !parse_config_line(buffer, len, map_info))
 	{
 		free(map_info);
-		write(2, "map error\n", 10); // Invalid first line
+		write(2, "map error\n", 10); // Geçersiz ilk satır
 		return (NULL);
 	}
 	// Grid'i oku ve doğrula
 	if (!read_and_validate_grid(fd, map_info))
 	{
-		// read_and_validate_grid zaten grid'i free yaptı (hata durumunda)
+		// read_and_validate_grid hata durumunda grid'i serbest bırakır
 		free(map_info);
-		write(2, "map error\n", 10); // Invalid grid
+		write(2, "map error\n", 10); // Geçersiz grid
 		return (NULL);
 	}
 	return (map_info);
